@@ -885,7 +885,18 @@ class Trainer:
             npu_accelerate_plugin(self.optimizer)
 
         self.timers and self.timers("read-data").start()
-
+        with paddle.no_grad():
+            for name, p in model.named_parameters():
+                print(
+                    "rank={}, pname={}, sum={}, cpu_sum={}, np_sum={}".format(
+                        paddle.device.get_device(),
+                        name,
+                        p.sum().item(),
+                        p.to(paddle.CPUPlace()).sum().item(),
+                        p.numpy().sum(),
+                    )
+                )
+        exit(0)
         for epoch in range(epochs_trained, num_train_epochs):
             if isinstance(train_dataloader, paddle.io.DataLoader) and isinstance(
                 train_dataloader.batch_sampler, DistributedBatchSampler
