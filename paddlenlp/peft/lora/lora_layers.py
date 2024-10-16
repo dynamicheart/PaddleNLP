@@ -451,8 +451,7 @@ class RowSequenceParallelLoRALinear(RowSequenceParallelLinear):
                 input_mp = ReduceScatterOp.apply(input_mp)
             else:
                 input_mp = MC2RowSeqParallelCoreLinear.apply(input_mp, self.lora_A, self.model_parallel_group)
-            # delta_mp = (input_mp @ self.lora_B) * self.scaling
-            delta_mp = self.lora_b_linear(input_mp, self.lora_B, training=self.training) * self.scaling
+            delta_mp = (input_mp @ self.lora_B) * self.scaling
             result_mp += delta_mp
         return result_mp
 
@@ -714,8 +713,7 @@ class ColumnSequenceParallelLoRALinear(ColumnSequenceParallelLinear):
             # TODO(@gexiao): temporary workaround for deterministic calculation
             if True or MC2ColumnSeqParallelCoreLinear is None:
                 input_a = AllGatherOp.apply(input_a)
-                # delta_mp = (input_a @ self.lora_B) * self.scaling
-                delta_mp = self.lora_b_linear(input_a, self.lora_B, training=self.training) * self.scaling
+                delta_mp = (input_a @ self.lora_B) * self.scaling
             else:
                 input_a = MC2ColumnSeqParallelCoreLinear.apply(input_a, self.lora_B, self.model_parallel_group)
                 delta_mp = input_a * self.scaling
