@@ -54,6 +54,24 @@ from paddlenlp.transformers.mc2_parallel_linear import (
 
 from .lora_quick_layers import quick_lora
 
+from paddle.autograd import PyLayer
+class CustomMatmul(PyLayer):
+    @staticmethod
+    def forward(ctx, x, weight):
+        ctx.save_for_backward(x, weight)
+        from paddle_xpu.layers.nn import xpu_matmul
+        matmul_op = xpu_matmul()
+        return matmul_op(x, weight)
+
+    @staticmethod
+    def backward(ctx, grad_output):
+        x, weight = ctx.saved_tensor()
+        dx = None
+        dw = None
+        if not x.stop_gradient:
+            dx = paddle.matmul(grad_output, weight, transpose_y=True)
+        if not weight.stop_gradient:
+            dw = paddle.matmul(x, grad_output, transpose_x=True)
 
 class LoRALinear(nn.Linear):
     # LoRA implemented in a dense layer
@@ -407,8 +425,8 @@ class RowSequenceParallelLoRALinear(RowSequenceParallelLinear):
         if get_env_device() == 'xpu':
             from paddle_xpu.layers.nn import xpu_matmul
             self.weight_linear = xpu_matmul()
-            self.lora_a_linear = xpu_matmul()
-            self.lora_b_linear = xpu_matmul()
+            # self.lora_a_linear = xpu_matmul()
+            # self.lora_b_linear = xpu_matmul()
 
     @property
     def use_quick_lora(self):
@@ -447,12 +465,13 @@ class RowSequenceParallelLoRALinear(RowSequenceParallelLinear):
             # TODO(@gexiao): temporary workaround for deterministic calculation
             if True or MC2RowSeqParallelCoreLinear is None:
                 # input_mp = input_mp @ self.lora_A
-                input_mp = self.lora_a_linear(input_mp, self.lora_A, training=self.training)
+                # input_mp = self.lora_a_linear(input_mp, self.lora_A, training=self.training)
+                input_mp = CustomMatmul.apply(input_mp, self.lora_A)
                 input_mp = ReduceScatterOp.apply(input_mp)
             else:
                 input_mp = MC2RowSeqParallelCoreLinear.apply(input_mp, self.lora_A, self.model_parallel_group)
             # delta_mp = (input_mp @ self.lora_B) * self.scaling
-            delta_mp = self.lora_b_linear(input_mp, self.lora_B, training=self.training) * self.scaling
+            delta_mp = CustomMatmul.apply(input_mp, self.lora_B) * self.scaling
             result_mp += delta_mp
         return result_mp
 
@@ -673,8 +692,8 @@ class ColumnSequenceParallelLoRALinear(ColumnSequenceParallelLinear):
         if get_env_device() == 'xpu':
             from paddle_xpu.layers.nn import xpu_matmul
             self.weight_linear = xpu_matmul()
-            self.lora_a_linear = xpu_matmul()
-            self.lora_b_linear = xpu_matmul()
+            # self.lora_a_linear = xpu_matmul()
+            # self.lora_b_linear = xpu_matmul()
 
     @property
     def use_quick_lora(self):
@@ -710,12 +729,13 @@ class ColumnSequenceParallelLoRALinear(ColumnSequenceParallelLinear):
 
         if not self.merged and not self.disable_lora:
             # input_a = self.lora_dropout(x) @ self.lora_A
-            input_a = self.lora_a_linear(self.lora_dropout(x), self.lora_A, training=self.training)
+            # input_a = self.lora_a_linear(self.lora_dropout(x), self.lora_A, training=self.training)
+            input_a = CustomMatmul.apply(self.lora_dropout(x), self.lora_A)
             # TODO(@gexiao): temporary workaround for deterministic calculation
             if True or MC2ColumnSeqParallelCoreLinear is None:
                 input_a = AllGatherOp.apply(input_a)
                 # delta_mp = (input_a @ self.lora_B) * self.scaling
-                delta_mp = self.lora_b_linear(input_a, self.lora_B, training=self.training) * self.scaling
+                delta_mp = CustomMatmul.apply(input_a, self.lora_B) * self.scaling
             else:
                 input_a = MC2ColumnSeqParallelCoreLinear.apply(input_a, self.lora_B, self.model_parallel_group)
                 delta_mp = input_a * self.scaling
