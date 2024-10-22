@@ -72,6 +72,7 @@ class CustomMatmul(PyLayer):
             dx = paddle.matmul(grad_output, weight, transpose_y=True)
         if not weight.stop_gradient:
             dw = paddle.matmul(x, grad_output, transpose_x=True)
+        return dx, dw
 
 class LoRALinear(nn.Linear):
     # LoRA implemented in a dense layer
